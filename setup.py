@@ -17,7 +17,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         "s3prl",
-        "pytorch_lightining"
     ],
     classifiers = [
         "Programming Language :: Python :: 3",
