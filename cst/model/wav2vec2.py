@@ -315,9 +315,6 @@ class Wav2Vec2EncoderLayerStableLayerNorm(nn.Module):
             self.final_layer_norm(hidden_states)
         )
 
-        if self.adapter_layer is not None:
-            hidden_states = hidden_states + self.adapter_layer(hidden_states)
-
         outputs = (hidden_states,)
 
         if output_attentions:
