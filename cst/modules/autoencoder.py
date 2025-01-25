@@ -259,7 +259,7 @@ class SemanticAutoEncoder(nn.Module):
 
     def forward(self, hs, hs_len):
         posteriors, latent_len = self.encode(hs, hs_len)
-        if self.config.sample_posterior:
+        if self.config.sample_posterior and self.training:
             latent = posteriors.sample()
         else:
             latent = posteriors.mode()
