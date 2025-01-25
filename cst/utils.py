@@ -251,7 +251,7 @@ def get_trainer(
         filename=f"best_{valid_metric.replace('/', '_')}-"
         + "{"
         + valid_metric
-        + ":.2f}",
+        + ":.3f}",
         save_top_k=2,
         every_n_epochs=1,
         auto_insert_metric_name=False,
