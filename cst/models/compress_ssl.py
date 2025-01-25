@@ -74,7 +74,7 @@ class CompressSSL(L.LightningModule):
             torch.arange(dec_len.max()).unsqueeze(0).to(hs.device), dec_len.unsqueeze(1)
         )
         rec_loss = torch.abs(hs - dec)
-        nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar
+        nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar + math.log(2.0)
         nll_loss = nll_loss * valid_mask.unsqueeze(-1)
         nll_loss = torch.sum(nll_loss) / dec_len.sum().item() / nll_loss.size(-1)
 
