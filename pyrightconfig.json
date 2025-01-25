@@ -2,4 +2,10 @@
     "exclude": [
         "**/result/**",
     ],
+    "reportOperatorIssue": "none",
+    "reportArgumentType": "none",
+    "reportCallIssue": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportOptionalSubscript": "none",
+    "reportOptionalMemberAccess": "none",
 }

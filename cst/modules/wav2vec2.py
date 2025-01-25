@@ -44,7 +44,7 @@ class Wav2Vec2Config:
             embeddings layer.
         num_conv_pos_embedding_groups (`int`, *optional*, defaults to 16):
             Number of groups of 1D convolutional positional embeddings layer.
-        """
+    """
 
     model_type = "wav2vec2"
 
@@ -334,31 +334,76 @@ class Wav2Vec2SamePadLayer(nn.Module):
         return hidden_states
 
 
-class Wav2Vec2PositionalConvEmbedding(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.conv = nn.Conv1d(
-            config.hidden_size,
-            config.hidden_size,
-            kernel_size=config.num_conv_pos_embeddings,
-            padding=config.num_conv_pos_embeddings // 2,
-            groups=config.num_conv_pos_embedding_groups,
-        )
+class CausalConv1d(nn.Module):
+    """
+    A 1D causal convolution layer.
+    For each output time step, only 'current and past' inputs are used.
+    """
 
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        groups=1,
+        bias=True,
+    ):
+        super().__init__()
+        # Calculate left padding so that output length == input length
+        # and the convolution is causal.
+        self.pad = (kernel_size - 1) * dilation
+
+        # Use standard Conv1d but pad enough on the left
+        # so that positions don't see future inputs.
+        self.conv = nn.Conv1d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=self.pad,  # left padding
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
+        )
         weight_norm = nn.utils.weight_norm
         if hasattr(nn.utils.parametrizations, "weight_norm"):
             weight_norm = nn.utils.parametrizations.weight_norm
-
         self.conv = weight_norm(self.conv, name="weight", dim=2)
 
-        self.padding = Wav2Vec2SamePadLayer(config.num_conv_pos_embeddings)
+        self.kernel_size = kernel_size
+        self.dilation = dilation
+
+    def forward(self, x):
+        # x shape: [batch, in_channels, time]
+        out = self.conv(x)
+
+        # The padding adds (kernel_size-1)*dilation extra frames at the end.
+        # We remove them so that output.shape[-1] = x.shape[-1].
+        if self.pad != 0:
+            out = out[:, :, : -self.pad]
+
+        return out
+
+
+class Wav2Vec2PositionalConvEmbedding(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.conv = CausalConv1d(
+            config.hidden_size,
+            config.hidden_size,
+            kernel_size=config.num_conv_pos_embeddings,
+            groups=config.num_conv_pos_embedding_groups,
+        )
+        # self.padding = Wav2Vec2SamePadLayer(config.num_conv_pos_embeddings)
         self.activation = ACT2FN[config.positional_activation]
 
     def forward(self, hidden_states):
         hidden_states = hidden_states.transpose(1, 2)
 
         hidden_states = self.conv(hidden_states)
-        hidden_states = self.padding(hidden_states)
+        # hidden_states = self.padding(hidden_states)
         hidden_states = self.activation(hidden_states)
 
         hidden_states = hidden_states.transpose(1, 2)

@@ -63,6 +63,7 @@ class SemanticAutoEncoderConfig:
         decoding_layer_sizes=None,
         representation_size=1024,
         latent_size=8,
+        sample_posterior=True,
     ):
         self.hidden_size = hidden_size
         self.positional_activation = positional_activation
@@ -77,18 +78,19 @@ class SemanticAutoEncoderConfig:
         self.activation_dropout = activation_dropout
         self.layer_norm_eps = layer_norm_eps
         self.encoding_layer_sizes = (
-            encoding_layer_sizes or [768, -1, 768, -1, 768, -1] + [768] * 4
+            encoding_layer_sizes or [768, -2, 768, -2, 768, -2] + [768] * 4
         )
         self.decoding_layer_sizes = decoding_layer_sizes or [768] * 4 + [
-            -1,
+            -3,
             768,
-            -1,
+            -3,
             768,
-            -1,
+            -3,
             768,
         ]
         self.representation_size = representation_size
         self.latent_size = latent_size
+        self.sample_posterior = sample_posterior
 
 
 class Downsample(nn.Module):
@@ -131,7 +133,7 @@ class Upsample(nn.Module):
         return hidden_states
 
 
-class PositionalEmbeddingLayer(nn.Module):
+class PositionalEmbedding(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -156,9 +158,21 @@ class TransformerLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.layer = Wav2Vec2EncoderLayerStableLayerNorm(config)
+        # create a causal mask
+        attn_mask = torch.ones(2000, 2000)
+        attn_mask = torch.tril(attn_mask)
+        attn_mask = 1 - attn_mask
+        self.register_buffer("attn_mask", attn_mask)
 
-    def forward(self, hidden_states):
-        hidden_states = self.layer(hidden_states)[0]
+    def forward(self, hs):
+        attn_mask = self.attn_mask[: hs.size(1), : hs.size(1)].to(dtype=hs.dtype)
+        attn_mask = attn_mask * torch.finfo(hs.dtype).min
+        attn_mask = (
+            attn_mask.unsqueeze(0)
+            .unsqueeze(0)
+            .expand(hs.size(0), 1, hs.size(1), hs.size(1))
+        )
+        hidden_states = self.layer(hs, attention_mask=attn_mask)[0]
         return hidden_states
 
 
@@ -179,17 +193,24 @@ class SemanticAutoEncoder(nn.Module):
         encoding_layers = []
         latest_size = config.hidden_size
         latest_config = config
+        self.downsample_times = 0
         for layer_size in config.encoding_layer_sizes:
-            if layer_size != -1:
-                encoding_layers.append(nn.Linear(latest_size, layer_size))
+            if layer_size > 0:
                 latest_config = new_config(config, layer_size)
-                encoding_layers.append(
-                    TransformerLayer(latest_config)
+                encoding_layers.extend(
+                    [
+                        nn.Linear(latest_size, layer_size),
+                        TransformerLayer(latest_config),
+                    ]
                 )
                 latest_size = layer_size
-            else:
+            elif layer_size == -1:
+                encoding_layers.append(PositionalEmbedding(latest_config))
+            elif layer_size == -2:
                 encoding_layers.append(Downsample(latest_config))
-                encoding_layers.append(PositionalEmbeddingLayer(latest_config))
+                self.downsample_times += 1
+            else:
+                raise ValueError
         self.encoding_layers = nn.Sequential(*encoding_layers)
 
         moments_size = config.latent_size * 2
@@ -199,39 +220,48 @@ class SemanticAutoEncoder(nn.Module):
 
         decoding_layers = []
         for layer_size in config.decoding_layer_sizes:
-            if layer_size != -1:
-                decoding_layers.append(nn.Linear(latest_size, layer_size))
+            if layer_size > 0:
                 latest_config = new_config(config, layer_size)
-                decoding_layers.append(
-                    TransformerLayer(latest_config)
+                decoding_layers.extend(
+                    [
+                        nn.Linear(latest_size, layer_size),
+                        TransformerLayer(latest_config),
+                    ]
                 )
                 latest_size = layer_size
-            else:
+            elif layer_size == -1:
+                decoding_layers.append(PositionalEmbedding(latest_config))
+            elif layer_size == -3:
                 decoding_layers.append(Upsample(latest_config))
-                decoding_layers.append(PositionalEmbeddingLayer(latest_config))
+            else:
+                raise ValueError
         self.decoding_layers = nn.Sequential(*decoding_layers)
 
         self.post_project = nn.Linear(config.hidden_size, config.representation_size)
 
-    def encode(self, representation):
-        hidden_states = self.pre_project(representation)
-        hidden_states = self.encoding_layers(hidden_states)
-        moments = self.encode_latent(hidden_states)
-        moments = moments.transpose(1, 2).unsqueeze(-1) # (bsz, hs, seqlen, 1)
-        posterior = DiagonalGaussianDistribution(moments)
-        return posterior
+    def encode(self, hs, hs_len):
+        hs = self.pre_project(hs)
+        hs = self.encoding_layers(hs)
+        moments = self.encode_latent(hs)  # (bsz, seqlen, hs)
+        moments = F.layer_norm(moments, moments.shape[-1:])
+        posteriors = DiagonalGaussianDistribution(moments)
 
-    def decode(self, latent):
-        hidden_states = self.decoding_layers(latent)
-        representation = self.post_project(hidden_states)
-        return representation
+        for _ in range(self.downsample_times):
+            hs_len = torch.div(hs_len, 2, rounding_mode="floor")
 
-    def forward(self, representation, sample_posterior=True):
-        posterior = self.encode(representation)
-        if sample_posterior:
-            z = posterior.sample()
+        return posteriors, hs_len
+
+    def decode(self, latent, hs_len):
+        hs = self.decoding_layers(latent)
+        hs = self.post_project(hs)
+        hs_len = hs_len * (2**self.downsample_times)
+        return hs, hs_len
+
+    def forward(self, hs, hs_len):
+        posteriors, latent_len = self.encode(hs, hs_len)
+        if self.config.sample_posterior:
+            latent = posteriors.sample()
         else:
-            z = posterior.mode()
-        latent = z.squeeze(-1).transpose(1, 2)
-        dec = self.decode(latent)
-        return dec, posterior
+            latent = posteriors.mode()
+        dec, dec_len = self.decode(latent, latent_len)
+        return posteriors, latent_len, dec, dec_len

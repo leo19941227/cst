@@ -1,3 +1,4 @@
 result/
 *egg-info/
 __pycache__/
+data/
