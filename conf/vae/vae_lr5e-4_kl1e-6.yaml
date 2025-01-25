@@ -17,14 +17,14 @@ model:
   upstream_name: hubert
   autoencoder_conf:
     representation_size: 768
-    latent_size: 8
+    latent_size: 128
     # -1: pos emb, -2: downsample, -3: upsample
-    encoding_layer_sizes: [-1, 768, -2, 768, -2, 768, -2, 768, 768, 768]
-    decoding_layer_sizes: [768, 768, 768, -3, 768, -3, 768, -3, 768]
+    encoding_layer_sizes: [768]
+    decoding_layer_sizes: [768]
     sample_posterior: true
-  lr: 1.0e-5
+  lr: 5.0e-4
   logvar_init: 0.0
-  kl_weight: 1.0
+  kl_weight: 1.0e-06
 
 data:
   train_conf:
