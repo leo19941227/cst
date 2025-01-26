@@ -21,6 +21,8 @@ class CompressSSL(L.LightningModule):
         initializer_range: float = 0.02,
     ):
         super().__init__()
+        self.save_hyperparameters()
+
         self.upstream = S3PRLUpstream(upstream_name)
         self.upstream.requires_grad_(False)
 

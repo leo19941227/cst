@@ -64,6 +64,7 @@ class SemanticAutoEncoderConfig:
         representation_size=1024,
         latent_size=8,
         sample_posterior=True,
+        norm_moments=True,
     ):
         self.hidden_size = hidden_size
         self.positional_activation = positional_activation
@@ -91,6 +92,7 @@ class SemanticAutoEncoderConfig:
         self.representation_size = representation_size
         self.latent_size = latent_size
         self.sample_posterior = sample_posterior
+        self.norm_moments = norm_moments
 
 
 class Downsample(nn.Module):
@@ -243,7 +245,8 @@ class SemanticAutoEncoder(nn.Module):
         hs = self.pre_project(hs)
         hs = self.encoding_layers(hs)
         moments = self.encode_latent(hs)  # (bsz, seqlen, hs)
-        moments = F.layer_norm(moments, moments.shape[-1:])
+        if self.config.norm_moments:
+            moments = F.layer_norm(moments, moments.shape[-1:])
         posteriors = DiagonalGaussianDistribution(moments)
 
         for _ in range(self.downsample_times):
@@ -251,10 +254,10 @@ class SemanticAutoEncoder(nn.Module):
 
         return posteriors, hs_len
 
-    def decode(self, latent, hs_len):
+    def decode(self, latent, latent_len):
         hs = self.decoding_layers(latent)
         hs = self.post_project(hs)
-        hs_len = hs_len * (2**self.downsample_times)
+        hs_len = latent_len * (2**self.downsample_times)
         return hs, hs_len
 
     def forward(self, hs, hs_len):
