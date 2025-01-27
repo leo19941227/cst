@@ -362,7 +362,7 @@ class CausalConv1d(nn.Module):
             out_channels,
             kernel_size=kernel_size,
             stride=stride,
-            padding=self.pad,  # left padding
+            padding=0,
             dilation=dilation,
             groups=groups,
             bias=bias,
@@ -374,16 +374,13 @@ class CausalConv1d(nn.Module):
 
         self.kernel_size = kernel_size
         self.dilation = dilation
+        self.stride = stride
 
     def forward(self, x):
         # x shape: [batch, in_channels, time]
-        out = self.conv(x)
-
-        # The padding adds (kernel_size-1)*dilation extra frames at the end.
-        # We remove them so that output.shape[-1] = x.shape[-1].
-        if self.pad != 0:
-            out = out[:, :, : -self.pad]
-
+        # left padding for the causal conv
+        x_pad = torch.nn.functional.pad(x, (self.pad, 0), value=0)
+        out = self.conv(x_pad)
         return out
 
 

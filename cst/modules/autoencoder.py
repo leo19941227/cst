@@ -9,6 +9,14 @@ from .wav2vec2 import (
     Wav2Vec2EncoderLayerStableLayerNorm,
 )
 from .distribution import DiagonalGaussianDistribution
+from .sampling import (
+    LinearUpsample,
+    LinearDownsample,
+    ConvUpsample,
+    ConvDownsample,
+    InterpolateUpsample,
+    AverageDownsample,
+)
 
 
 class SemanticAutoEncoderConfig:
@@ -65,6 +73,8 @@ class SemanticAutoEncoderConfig:
         latent_size=8,
         sample_posterior=True,
         norm_moments=True,
+        downsample_type="linear",
+        upsample_type="linear",
     ):
         self.hidden_size = hidden_size
         self.positional_activation = positional_activation
@@ -93,45 +103,53 @@ class SemanticAutoEncoderConfig:
         self.latent_size = latent_size
         self.sample_posterior = sample_posterior
         self.norm_moments = norm_moments
+        self.downsample_type = downsample_type
+        self.upsample_type = upsample_type
 
 
 class Downsample(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: SemanticAutoEncoderConfig):
         super().__init__()
-        self.config = config
-        self.project = nn.Linear(2 * config.hidden_size, config.hidden_size)
-        self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        if config.downsample_type == "linear":
+            self.module = LinearDownsample(config)
+        elif config.downsample_type == "conv":
+            self.module = ConvDownsample(config)
+        elif config.downsample_type == "average":
+            self.module = AverageDownsample(config)
+        else:
+            raise ValueError(
+                f"Unsupported config.downsample_type: {config.downsample_type}"
+            )
 
     def forward(self, hidden_states):
         """
         Args:
             hidden_states (torch.Tensor): batch_size x seqlen x hidden_size
         """
-        bsz, seqlen, hs = hidden_states.shape
-        hidden_states = hidden_states[:, : seqlen // 2 * 2].reshape(
-            bsz, seqlen // 2, hs * 2
-        )
-        hidden_states = self.project(hidden_states)
-        hidden_states = self.layer_norm(hidden_states)
+        hidden_states = self.module(hidden_states)
         return hidden_states
 
 
 class Upsample(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: SemanticAutoEncoderConfig):
         super().__init__()
-        self.config = config
-        self.project = nn.Linear(config.hidden_size, 2 * config.hidden_size)
-        self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        if config.upsample_type == "linear":
+            self.module = LinearUpsample(config)
+        elif config.upsample_type == "conv":
+            self.module = ConvUpsample(config)
+        elif config.upsample_type == "interpolate":
+            self.module = InterpolateUpsample(config)
+        else:
+            raise ValueError(
+                f"Unsupported config.upsample_type: {config.upsample_type}"
+            )
 
     def forward(self, hidden_states):
         """
         Args:
             hidden_states (torch.Tensor): batch_size x seqlen x hidden_size
         """
-        bsz, seqlen, hs = hidden_states.shape
-        projected = self.project(hidden_states)
-        hidden_states = projected.reshape(bsz, 2 * seqlen, self.config.hidden_size)
-        hidden_states = self.layer_norm(hidden_states)
+        hidden_states = self.module(hidden_states)
         return hidden_states
 
 
