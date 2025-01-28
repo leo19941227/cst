@@ -8,4 +8,5 @@
     "reportAttributeAccessIssue": "none",
     "reportOptionalSubscript": "none",
     "reportOptionalMemberAccess": "none",
+    "reportIncompatibleMethodOverride": "none",
 }
