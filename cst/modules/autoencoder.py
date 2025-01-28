@@ -8,7 +8,6 @@ from .wav2vec2 import (
     Wav2Vec2PositionalConvEmbedding,
     Wav2Vec2EncoderLayerStableLayerNorm,
 )
-from .distribution import DiagonalGaussianDistribution
 from .sampling import (
     LinearUpsample,
     LinearDownsample,
@@ -16,7 +15,10 @@ from .sampling import (
     ConvDownsample,
     InterpolateUpsample,
     AverageDownsample,
+    FlattenDownsample,
 )
+from .sinusoidal import SinusoidalPositionalEmbedding
+from .distribution import DiagonalGaussianDistribution
 
 
 class SemanticAutoEncoderConfig:
@@ -64,6 +66,7 @@ class SemanticAutoEncoderConfig:
         activation_dropout=0.1,
         attention_dropout=0.1,
         layer_norm_eps=1e-5,
+        positional_type="conv",
         positional_activation="gelu",
         num_conv_pos_embeddings=128,
         num_conv_pos_embedding_groups=16,
@@ -75,8 +78,10 @@ class SemanticAutoEncoderConfig:
         norm_moments=True,
         downsample_type="linear",
         upsample_type="linear",
+        flatten_num=None,
     ):
         self.hidden_size = hidden_size
+        self.positional_type = positional_type
         self.positional_activation = positional_activation
         self.num_conv_pos_embeddings = num_conv_pos_embeddings
         self.num_conv_pos_embedding_groups = num_conv_pos_embedding_groups
@@ -105,21 +110,32 @@ class SemanticAutoEncoderConfig:
         self.norm_moments = norm_moments
         self.downsample_type = downsample_type
         self.upsample_type = upsample_type
+        self.flatten_num = flatten_num
 
 
 class Downsample(nn.Module):
     def __init__(self, config: SemanticAutoEncoderConfig):
         super().__init__()
+        self.config = config
         if config.downsample_type == "linear":
             self.module = LinearDownsample(config)
         elif config.downsample_type == "conv":
             self.module = ConvDownsample(config)
         elif config.downsample_type == "average":
             self.module = AverageDownsample(config)
+        elif config.downsample_type == "flatten":
+            self.module = FlattenDownsample(config)
         else:
             raise ValueError(
                 f"Unsupported config.downsample_type: {config.downsample_type}"
             )
+
+    @property
+    def downsample_rate(self):
+        if isinstance(self.module, FlattenDownsample):
+            return self.config.flatten_num
+        else:
+            return 2
 
     def forward(self, hidden_states):
         """
@@ -154,10 +170,17 @@ class Upsample(nn.Module):
 
 
 class PositionalEmbedding(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: SemanticAutoEncoderConfig):
         super().__init__()
         self.config = config
-        self.pos_conv_embed = Wav2Vec2PositionalConvEmbedding(config)
+        if self.config.positional_type == "conv":
+            self.pos_embed = Wav2Vec2PositionalConvEmbedding(config)
+        elif self.config.positional_type == "sinusoidal":
+            self.pos_embed = SinusoidalPositionalEmbedding(config.hidden_size, 0)
+        else:
+            raise ValueError(
+                f"Unsupported config.positional_type: {self.config.positional_type}"
+            )
         self.dropout = nn.Dropout(config.hidden_dropout)
 
     def forward(
@@ -168,7 +191,17 @@ class PositionalEmbedding(nn.Module):
         Args:
             hidden_states: batch_size x seqlen x hidden_size
         """
-        position_embeddings = self.pos_conv_embed(hidden_states)
+        if self.config.positional_type == "conv":
+            position_embeddings = self.pos_embed(hidden_states)
+        elif self.config.positional_type == "sinusoidal":
+            positions = (
+                torch.arange(1, hidden_states.size(1) + 1)
+                .unsqueeze(0)
+                .to(hidden_states.device)
+            )
+            position_embeddings = self.pos_embed(positions)
+        else:
+            raise ValueError
         hidden_states = hidden_states + position_embeddings
         hidden_states = self.dropout(hidden_states)
         return hidden_states
@@ -213,7 +246,7 @@ class SemanticAutoEncoder(nn.Module):
         encoding_layers = []
         latest_size = config.hidden_size
         latest_config = config
-        self.downsample_times = 0
+        self.downsample_rate = 1
         for layer_size in config.encoding_layer_sizes:
             if layer_size > 0:
                 latest_config = new_config(config, layer_size)
@@ -227,8 +260,9 @@ class SemanticAutoEncoder(nn.Module):
             elif layer_size == -1:
                 encoding_layers.append(PositionalEmbedding(latest_config))
             elif layer_size == -2:
-                encoding_layers.append(Downsample(latest_config))
-                self.downsample_times += 1
+                downsample_layer = Downsample(latest_config)
+                encoding_layers.append(downsample_layer)
+                self.downsample_rate *= downsample_layer.downsample_rate
             else:
                 raise ValueError
         self.encoding_layers = nn.Sequential(*encoding_layers)
@@ -266,16 +300,13 @@ class SemanticAutoEncoder(nn.Module):
         if self.config.norm_moments:
             moments = F.layer_norm(moments, moments.shape[-1:])
         posteriors = DiagonalGaussianDistribution(moments)
-
-        for _ in range(self.downsample_times):
-            hs_len = torch.div(hs_len, 2, rounding_mode="floor")
-
+        hs_len = torch.div(hs_len, self.downsample_rate, rounding_mode="floor")
         return posteriors, hs_len
 
     def decode(self, latent, latent_len):
         hs = self.decoding_layers(latent)
         hs = self.post_project(hs)
-        hs_len = latent_len * (2**self.downsample_times)
+        hs_len = latent_len * self.downsample_rate
         return hs, hs_len
 
     def forward(self, hs, hs_len):
