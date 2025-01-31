@@ -7,31 +7,27 @@ from torch.utils.data import Dataset, DataLoader
 from .total_samples_sampler import TotalSamplesSampler
 
 
-class AudioDatset(Dataset):
+class SpeechTextDatset(Dataset):
     def __init__(
         self,
         data_list: str,
-        training: bool,
-        max_samples: int = 320000,
-        min_samples: int = 48000,
+        tokenizer,
     ):
         super().__init__()
-        self.training = training
-        self.max_samples = max_samples
-        self.min_samples = min_samples
+        self.tokenizer = tokenizer
 
+        self.uids = []
         self.paths = []
         self.lengths = []
+        self.trans = []
         with open(data_list) as f:
             for line in f.readlines():
                 line = line.strip()
-                path, samples = line.split("\t", maxsplit=1)
-                samples = int(samples)
-                length = min(max_samples, samples)
-                if training and length < min_samples:
-                    continue
+                uid, path, samples, text = line.split("\t")
+                self.uids.append(uid)
                 self.paths.append(path)
-                self.lengths.append(length)
+                self.lengths.append(int(samples))
+                self.trans.append(text)
 
     def __len__(self):
         return len(self.paths)
@@ -44,35 +40,44 @@ class AudioDatset(Dataset):
         wav, sr = torchaudio.load(path)
         assert sr == 16000
         wav = wav.reshape(-1)
-        if self.training and len(wav) > self.max_samples:
-            start = random.randint(0, len(wav) - self.max_samples - 1)
-            wav = wav[start : start + self.max_samples]
-        return wav
+
+        trans = self.trans[index]
+        tokens = torch.LongTensor(
+            self.tokenizer.encode(trans, add_special_tokens=False)
+        )
+
+        return wav, tokens
 
     @classmethod
     def get_dataloader(
         cls,
         data_list: str,
-        training: bool,
-        max_samples: int = 320000,
-        min_samples: int = 48000,
+        tokenizer,
         total_samples: int = 10240000,
         shuffle: bool = False,
         num_workers: int = 0,
     ):
-        dataset = cls(data_list, training, max_samples, min_samples)
+        dataset = cls(data_list, tokenizer)
         lengths = [dataset.get_length(index) for index in range(len(dataset))]
         batch_sampler = TotalSamplesSampler(lengths, total_samples, shuffle)
 
         def collate_fn(samples):
             wavs = []
             lengths = []
-            for wav in samples:
+            all_tokens = []
+            all_tokens_len = []
+            for wav, tokens in samples:
                 wavs.append(wav)
                 lengths.append(len(wav))
-            wavs = pad_sequence(wavs, batch_first=True)
+                all_tokens.append(tokens)
+                all_tokens_len.append(len(tokens))
+            wavs = pad_sequence(wavs, batch_first=True, padding_value=0)
             lengths = torch.LongTensor(lengths)
-            return wavs, lengths
+            all_tokens = pad_sequence(
+                all_tokens, batch_first=True, padding_value=tokenizer.pad_token_id
+            )
+            all_tokens_len = torch.LongTensor(all_tokens_len)
+            return wavs, lengths, all_tokens, all_tokens_len
 
         dataloader = DataLoader(
             dataset,
