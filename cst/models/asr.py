@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import lightning as L
+import torch.nn.functional as F
 from s3prl.nn import S3PRLUpstream
 from transformers import AutoTokenizer
 
@@ -32,6 +33,17 @@ def wer(hypothesis, groundtruth):
     return err / tot
 
 
+class SimpleModel(nn.Module):
+    def __init__(self, hidden_size, output_size):
+        super().__init__()
+        self.project1 = nn.Linear(hidden_size, hidden_size)
+        self.project2 = nn.Linear(hidden_size, output_size)
+
+    def forward(self, hs, hs_len):
+        hs = self.project2(F.relu(self.project1(hs)))
+        return hs, hs_len
+
+
 class CtcASR(L.LightningModule):
     def __init__(
         self,
@@ -40,6 +52,7 @@ class CtcASR(L.LightningModule):
         project_dim: int = 512,
         tokenizer_name: str = "bert-base-uncased",
         specaug_conf: dict = None,
+        downstream_name: str = "rnn",
         downstream_conf: dict = None,
         lr: float = 1.0e-4,
     ):
@@ -61,11 +74,17 @@ class CtcASR(L.LightningModule):
             self.specaug = SpecAug(**specaug_conf)
 
         self.projector = nn.Linear(upstream_dim, project_dim)
-        self.model = RNNs(
-            project_dim,
-            len(self.tokenizer),
-            **downstream_conf,
-        )
+        output_size = len(self.tokenizer)
+        if downstream_name == "rnn":
+            self.model = RNNs(
+                project_dim,
+                output_size,
+                **downstream_conf,
+            )
+        elif downstream_name == "probing":
+            self.model = SimpleModel(project_dim, output_size)
+        else:
+            raise ValueError(f"Unsupported downstream_name: {downstream_name}")
 
         self.objective = nn.CTCLoss(
             blank=self.tokenizer.pad_token_id,
