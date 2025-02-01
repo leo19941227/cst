@@ -5,6 +5,7 @@ from s3prl.nn import S3PRLUpstream
 from transformers import AutoTokenizer
 
 from cst.modules.rnn import RNNs
+from cst.datasets.tokenizer import CharacterTokenizer
 from cst.datasets.speech_text import SpeechTextDatset
 
 import editdistance as ed
@@ -45,9 +46,14 @@ class CtcASR(L.LightningModule):
         self.save_hyperparameters()
         self.lr = lr
 
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        if tokenizer_name == "char":
+            self.tokenizer = CharacterTokenizer()
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+
         self.upstream = S3PRLUpstream(upstream_name)
         self.upstream.requires_grad_(False)
+
         self.projector = nn.Linear(upstream_dim, project_dim)
         self.model = RNNs(
             project_dim,
@@ -55,6 +61,7 @@ class CtcASR(L.LightningModule):
             upstream_rate=upstream_rate,
             **downstream_conf,
         )
+
         self.objective = nn.CTCLoss(
             blank=self.tokenizer.pad_token_id,
             zero_infinity=True,
