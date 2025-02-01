@@ -5,6 +5,7 @@ from s3prl.nn import S3PRLUpstream
 from transformers import AutoTokenizer
 
 from cst.modules.rnn import RNNs
+from cst.datasets.specaug import SpecAug
 from cst.datasets.tokenizer import CharacterTokenizer
 from cst.datasets.speech_text import SpeechTextDatset
 
@@ -39,6 +40,7 @@ class CtcASR(L.LightningModule):
         upstream_rate: int = 320,
         project_dim: int = 1024,
         tokenizer_name: str = "bert-base-uncased",
+        specaug_conf: dict = None,
         downstream_conf: dict = None,
         lr: float = 1.0e-4,
     ):
@@ -53,6 +55,11 @@ class CtcASR(L.LightningModule):
 
         self.upstream = S3PRLUpstream(upstream_name)
         self.upstream.requires_grad_(False)
+
+        # specaug
+        self.specaug = None
+        if specaug_conf is not None:
+            self.specaug = SpecAug(**specaug_conf)
 
         self.projector = nn.Linear(upstream_dim, project_dim)
         self.model = RNNs(
@@ -72,6 +79,10 @@ class CtcASR(L.LightningModule):
         with torch.no_grad():
             all_hs, all_hs_len = self.upstream(wavs, wavs_len)
         hs, hs_len = all_hs[-1], all_hs_len[-1]
+
+        if self.specaug is not None and self.training:
+            hs, _ = self.specaug(hs)
+
         hs = self.projector(hs)
         logits, log_probs_len = self.model(hs, hs_len)
         log_probs = nn.functional.log_softmax(logits, dim=-1)
