@@ -93,7 +93,6 @@ class RNNs(nn.Module):
         self,
         input_size,
         output_size,
-        upstream_rate,
         module,
         bidirection,
         dim,
@@ -102,12 +101,11 @@ class RNNs(nn.Module):
         proj,
         sample_rate,
         sample_style,
-        total_rate=320,
     ):
         super(RNNs, self).__init__()
         latest_size = input_size
 
-        self.sample_rate = 1 if total_rate == -1 else round(total_rate / upstream_rate)
+        self.sample_rate = 1
         self.sample_style = sample_style
         if sample_style == "concat":
             latest_size *= self.sample_rate

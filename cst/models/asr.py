@@ -37,8 +37,7 @@ class CtcASR(L.LightningModule):
         self,
         upstream_name: str,
         upstream_dim: int = 768,
-        upstream_rate: int = 320,
-        project_dim: int = 1024,
+        project_dim: int = 512,
         tokenizer_name: str = "bert-base-uncased",
         specaug_conf: dict = None,
         downstream_conf: dict = None,
@@ -65,7 +64,6 @@ class CtcASR(L.LightningModule):
         self.model = RNNs(
             project_dim,
             len(self.tokenizer),
-            upstream_rate=upstream_rate,
             **downstream_conf,
         )
 

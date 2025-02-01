@@ -15,31 +15,16 @@ target: cst.models.asr.CtcASR
 
 model:
   upstream_name: hubert
-  tokenizer_name: char
-  project_dim: 1024
-
-  specaug_conf:
-    adaptive: false
-    adaptive_number_ratio: 0.04
-    adaptive_size_ratio: 0.04
-    max_n_time_masks: 20
-    apply_time_warp: true
-    apply_time_mask: true
-    apply_freq_mask: true
-    time_warp_window: 5
-    time_mask_width_range: [0, 40]
-    freq_mask_width_range: [0, 50]
-    num_freq_mask: 4
-    num_time_mask: 2
+  project_dim: 512
 
   downstream_conf:
     module: 'LSTM'                        # 'LSTM'/'GRU'
     bidirection: True
-    dim: [1024, 1024]
-    dropout: [0.2, 0.2]
-    layer_norm: [False, False]
-    proj: [False, False]              # Linear projection + Tanh after each rnn layer
-    sample_rate: [1, 1]
+    dim: [512]
+    dropout: [0.2]
+    layer_norm: [False]
+    proj: [False]              # Linear projection + Tanh after each rnn layer
+    sample_rate: [1]
     sample_style: 'concat'                  # 'drop'/'concat'
   lr: 1.0e-4
 

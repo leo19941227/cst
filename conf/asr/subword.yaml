@@ -15,6 +15,7 @@ target: cst.models.asr.CtcASR
 
 model:
   upstream_name: hubert
+  project_dim: 1024
 
   specaug_conf:
     adaptive: false
@@ -31,7 +32,6 @@ model:
     num_time_mask: 2
 
   downstream_conf:
-    total_rate: -1
     module: 'LSTM'                        # 'LSTM'/'GRU'
     bidirection: True
     dim: [1024, 1024]
