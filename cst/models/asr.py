@@ -49,37 +49,6 @@ class SimpleModel(nn.Module):
         return hs, hs_len
 
 
-def init_weights(m):
-    # Initialize Linear layers with Xavier initialization
-    if isinstance(m, nn.Linear):
-        init.xavier_uniform_(m.weight)
-        if m.bias is not None:
-            m.bias.data.fill_(0)
-
-    # Initialize LSTM layers
-    elif isinstance(m, nn.LSTM):
-        for name, param in m.named_parameters():
-            if "weight_ih" in name:
-                # Xavier initialization for input-to-hidden weights.
-                init.xavier_uniform_(param.data)
-            elif "weight_hh" in name:
-                # Orthogonal initialization for hidden-to-hidden (recurrent) weights.
-                init.orthogonal_(param.data)
-            elif "bias" in name:
-                # Zero-initialize biases.
-                param.data.fill_(0)
-                # Optionally, set forget gate bias to 1 if this is an LSTM.
-                # PyTorch LSTM biases are arranged as: [input, forget, cell, output].
-                # This block checks if the bias shape corresponds to an LSTM's bias.
-                hidden_size = m.hidden_size
-                if param.data.shape[0] == 4 * hidden_size:
-                    start, end = (
-                        hidden_size,
-                        2 * hidden_size,
-                    )  # Forget gate bias indices.
-                    param.data[start:end].fill_(1.0)
-
-
 class CtcASR(L.LightningModule):
     def __init__(
         self,
@@ -127,12 +96,6 @@ class CtcASR(L.LightningModule):
             blank=self.tokenizer.pad_token_id,
             zero_infinity=True,
         )
-
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        self.projector.apply(init_weights)
-        self.model.apply(init_weights)
 
     def forward(self, wavs, wavs_len, tokens, tokens_len):
         self.upstream.eval()
