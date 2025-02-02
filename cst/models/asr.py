@@ -1,3 +1,5 @@
+import logging
+
 import torch
 import torch.nn as nn
 import lightning as L
@@ -11,6 +13,8 @@ from cst.datasets.tokenizer import CharacterTokenizer
 from cst.datasets.speech_text import SpeechTextDatset
 
 import editdistance as ed
+
+logger = logging.getLogger(__name__)
 
 
 def cer(hypothesis, groundtruth):
@@ -71,6 +75,7 @@ class CtcASR(L.LightningModule):
         # specaug
         self.specaug = None
         if specaug_conf is not None:
+            logger.info("Apply specaug")
             self.specaug = SpecAug(**specaug_conf)
 
         self.projector = nn.Linear(upstream_dim, project_dim)

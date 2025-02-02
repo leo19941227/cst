@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 import yaml
 import random
 import logging
@@ -170,11 +169,22 @@ def initialize():
         "-p", "--print", action="store_true", help="Show the default config"
     )
     parser.add_argument(
+        "--verbose", default="INFO", help="logging level: INFO, DEBUG, WARNING, ERROR"
+    )
+    parser.add_argument(
         "conf",
         help="Provide a config file defining the training model.",
     )
     args, remained = parser.parse_known_args()
     conf_path = args.conf
+
+    level = getattr(logging, args.verbose)
+    root_log = logging.getLogger()
+    root_log.setLevel(level)
+    formatter = logging.Formatter(f"%(levelname)s | %(asctime)s | %(module)s.%(funcName)s:%(lineno)d | %(message)s")
+    streamHandler = logging.StreamHandler()
+    streamHandler.setFormatter(formatter)
+    root_log.addHandler(streamHandler)
 
     OmegaConf.register_new_resolver("eval", eval)
     with open(conf_path) as f:
