@@ -1,8 +1,8 @@
 import torch
-from torch.utils.data import Sampler
+from torch.utils.data import BatchSampler
 
 
-class TotalSamplesSampler(Sampler[list]):
+class TotalSamplesSampler(BatchSampler):
     """A simple BatchSampler that yields a list of indices for each batch."""
 
     def __init__(self, lengths, total_samples, shuffle=False, seed=1227):

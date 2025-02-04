@@ -81,3 +81,29 @@ class AudioDatset(Dataset):
             collate_fn=collate_fn,
         )
         return dataloader
+
+    @classmethod
+    def get_inference_dataloader(
+        cls,
+        data_list: str,
+        num_workers: int = 0,
+    ):
+        dataset = cls(data_list, False)
+
+        def collate_fn(samples):
+            wavs = []
+            lengths = []
+            for wav in samples:
+                wavs.append(wav)
+                lengths.append(len(wav))
+            wavs = pad_sequence(wavs, batch_first=True)
+            lengths = torch.LongTensor(lengths)
+            return wavs, lengths
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=1,
+            num_workers=num_workers,
+            collate_fn=collate_fn,
+        )
+        return dataloader

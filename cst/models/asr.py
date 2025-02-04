@@ -84,7 +84,6 @@ class CtcASR(L.LightningModule):
     def __init__(
         self,
         upstream_name: str,
-        upstream_dim: int = 768,
         project_dim: int = 512,
         tokenizer_name: str = "bert-base-uncased",
         specaug_conf: dict = None,
@@ -103,6 +102,8 @@ class CtcASR(L.LightningModule):
 
         self.upstream = S3PRLUpstream(upstream_name)
         self.upstream.requires_grad_(False)
+        if hasattr(self.upstream, "embeddings") and self.upstream.embeddings is not None:
+            self.upstream.embeddings.requires_grad_(True)
 
         # specaug
         self.specaug = None
@@ -110,7 +111,7 @@ class CtcASR(L.LightningModule):
             logger.info("Apply specaug")
             self.specaug = SpecAug(**specaug_conf)
 
-        self.projector = nn.Linear(upstream_dim, project_dim)
+        self.projector = nn.Linear(self.upstream.hidden_sizes[-1], project_dim)
         output_size = len(self.tokenizer)
         if downstream_name == "rnn":
             self.model = RNNs(
@@ -135,9 +136,7 @@ class CtcASR(L.LightningModule):
         self.model.apply(init_weights)
 
     def forward(self, wavs, wavs_len, tokens, tokens_len):
-        self.upstream.eval()
-        with torch.no_grad():
-            all_hs, all_hs_len = self.upstream(wavs, wavs_len)
+        all_hs, all_hs_len = self.upstream(wavs, wavs_len)
         hs, hs_len = all_hs[-1], all_hs_len[-1]
 
         if self.specaug is not None and self.training:
