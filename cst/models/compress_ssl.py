@@ -100,19 +100,19 @@ class CompressSSL(L.LightningModule):
             hs, hs_len = all_hs[-1], all_hs_len[-1]
 
         posteriors, latent_len = self.autoencoder.encode(hs, hs_len)
-        return posteriors, latent_len
+        return hs, hs_len, posteriors, latent_len
 
     def decode(self, latents, latents_len):
         dec, dec_len = self.autoencoder.decode(latents, latents_len)
         return dec, dec_len
 
     def forward(self, wavs, wavs_len):
-        posteriors, latent_len = self.encode(wavs, wavs_len)
+        hs, hs_len, posteriors, latent_len = self.encode(wavs, wavs_len)
         if self.sample_posterior:
             latents = posteriors.sample()
         else:
             latents = posteriors.mode()
-        dec, dec_len = self.decode(latents, latents_len)
+        dec, dec_len = self.decode(latents, latent_len)
 
         hs = hs[:, : dec_len.max()].contiguous()
         dec = dec[:, : dec_len.max()].contiguous()
