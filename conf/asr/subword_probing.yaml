@@ -2,7 +2,7 @@ expdir: ???
 num_workers: 8
 
 trainer:
-  max_epochs: 50
+  max_epochs: 200
   accumulate_grad_batches: 1
   gradient_clip_val: 1.0
   precision: 16
