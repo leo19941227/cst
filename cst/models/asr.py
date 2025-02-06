@@ -89,6 +89,7 @@ class CtcASR(L.LightningModule):
         specaug_conf: dict = None,
         downstream_name: str = "rnn",
         downstream_conf: dict = None,
+        upstream_conf: dict = None,
         lr: float = 1.0e-4,
     ):
         super().__init__()
@@ -100,9 +101,13 @@ class CtcASR(L.LightningModule):
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
-        self.upstream = S3PRLUpstream(upstream_name)
+        upstream_conf = upstream_conf or {}
+        self.upstream = S3PRLUpstream(upstream_name, extra_conf=upstream_conf)
         self.upstream.requires_grad_(False)
-        if hasattr(self.upstream, "embeddings") and self.upstream.embeddings is not None:
+        if (
+            hasattr(self.upstream, "embeddings")
+            and self.upstream.embeddings is not None
+        ):
             self.upstream.embeddings.requires_grad_(True)
 
         # specaug

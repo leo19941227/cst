@@ -19,6 +19,7 @@ class CompressSSL(L.LightningModule):
         kl_weight: float = 1.0,
         logvar_init: float = 0.0,
         initializer_range: float = 0.02,
+        sample_posterior: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -28,13 +29,13 @@ class CompressSSL(L.LightningModule):
 
         config = SemanticAutoEncoderConfig(**autoencoder_conf)
         self.autoencoder = SemanticAutoEncoder(config)
+        self.autoencoder.apply(self._init_weights)
 
         self.lr = lr
         self.kl_weight = kl_weight
         self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)
         self.initializer_range = initializer_range
-
-        self.apply(self._init_weights)
+        self.sample_posterior = sample_posterior
 
     def _init_weights(self, module):
         """Initialize the weights"""
@@ -63,12 +64,26 @@ class CompressSSL(L.LightningModule):
                 )
                 nn.init.uniform_(module.bias, a=-k, b=k)
 
-    def forward(self, wavs, wavs_len):
+    def encode(self, wavs, wavs_len):
         self.upstream.eval()
         with torch.no_grad():
             all_hs, all_hs_len = self.upstream(wavs, wavs_len)
             hs, hs_len = all_hs[-1], all_hs_len[-1]
-        posteriors, latent_len, dec, dec_len = self.autoencoder(hs, hs_len)
+
+        posteriors, latent_len = self.autoencoder.encode(hs, hs_len)
+        return posteriors, latent_len
+
+    def decode(self, latents, latents_len):
+        dec, dec_len = self.autoencoder.decode(latents, latents_len)
+        return dec, dec_len
+
+    def forward(self, wavs, wavs_len):
+        posteriors, latent_len = self.encode(wavs, wavs_len)
+        if self.sample_posterior:
+            latents = posteriors.sample()
+        else:
+            latents = posteriors.mode()
+        dec, dec_len = self.decode(latents, latents_len)
 
         hs = hs[:, : dec_len.max()].contiguous()
         dec = dec[:, : dec_len.max()].contiguous()
@@ -89,16 +104,22 @@ class CompressSSL(L.LightningModule):
         kl_loss = torch.sum(kl_loss) / latent_len.sum().item()
 
         total_loss = nll_loss + self.kl_weight * kl_loss
-        return total_loss, nll_loss, kl_loss
+        rec_loss = (
+            (rec_loss * valid_mask.unsqueeze(-1)).sum()
+            / dec_len.sum().item()
+            / rec_loss.size(-1)
+        )
+        return total_loss, nll_loss, kl_loss, rec_loss
 
     def training_step(self, batch, batch_idx):
         wavs, wavs_len = batch
-        total_loss, nll_loss, kl_loss = self(wavs, wavs_len)
+        total_loss, nll_loss, kl_loss, rec_loss = self(wavs, wavs_len)
         self.log_dict(
             {
                 "train/loss": total_loss,
                 "train/nll_loss": nll_loss,
                 "train/kl_loss": kl_loss,
+                "train/rec_loss": rec_loss,
             },
             prog_bar=True,
             on_step=True,
@@ -108,12 +129,13 @@ class CompressSSL(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         wavs, wavs_len = batch
-        total_loss, nll_loss, kl_loss = self(wavs, wavs_len)
+        total_loss, nll_loss, kl_loss, rec_loss = self(wavs, wavs_len)
         self.log_dict(
             {
                 "valid/loss": total_loss,
                 "valid/nll_loss": nll_loss,
                 "valid/kl_loss": kl_loss,
+                "valid/rec_loss": rec_loss,
             },
             prog_bar=True,
             on_epoch=True,

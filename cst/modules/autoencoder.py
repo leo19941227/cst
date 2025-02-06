@@ -74,7 +74,6 @@ class SemanticAutoEncoderConfig:
         decoding_layer_sizes=None,
         representation_size=1024,
         latent_size=8,
-        sample_posterior=True,
         norm_moments=True,
         downsample_type="linear",
         upsample_type="linear",
@@ -106,7 +105,6 @@ class SemanticAutoEncoderConfig:
         ]
         self.representation_size = representation_size
         self.latent_size = latent_size
-        self.sample_posterior = sample_posterior
         self.norm_moments = norm_moments
         self.downsample_type = downsample_type
         self.upsample_type = upsample_type
@@ -309,9 +307,9 @@ class SemanticAutoEncoder(nn.Module):
         hs_len = latent_len * self.downsample_rate
         return hs, hs_len
 
-    def forward(self, hs, hs_len):
+    def forward(self, hs, hs_len, sample_posterior=True):
         posteriors, latent_len = self.encode(hs, hs_len)
-        if self.config.sample_posterior and self.training:
+        if sample_posterior:
             latent = posteriors.sample()
         else:
             latent = posteriors.mode()
