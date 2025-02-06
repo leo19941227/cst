@@ -74,7 +74,7 @@ class SemanticAutoEncoderConfig:
         decoding_layer_sizes=None,
         representation_size=1024,
         latent_size=8,
-        norm_moments=True,
+        norm_moments=False,
         downsample_type="linear",
         upsample_type="linear",
         flatten_num=None,

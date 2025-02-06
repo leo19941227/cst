@@ -3,19 +3,41 @@ import math
 import torch
 import torch.nn as nn
 import lightning as L
+import torch.nn.functional as F
 from s3prl.nn import S3PRLUpstream
 
 from cst.datasets.audio import AudioDatset
 from cst.modules.wav2vec2 import CausalConv1d
+from cst.modules.distribution import DiagonalGaussianDistribution
 from cst.modules.autoencoder import SemanticAutoEncoder, SemanticAutoEncoderConfig
+
+
+class SimpleModel(nn.Module):
+    def __init__(self, hidden_size, latent_size):
+        super().__init__()
+        self.project1 = nn.Linear(hidden_size, hidden_size)
+        self.project2 = nn.Linear(hidden_size, latent_size * 2)
+        self.project3 = nn.Linear(latent_size, hidden_size)
+        self.project4 = nn.Linear(hidden_size, hidden_size)
+
+    def encode(self, hs, hs_len):
+        moments = self.project2(F.relu(self.project1(hs)))
+        posteriors = DiagonalGaussianDistribution(moments)
+        return posteriors, hs_len
+
+    def decode(self, latent, latent_len):
+        hs = self.project4(F.relu(self.project3(latent)))
+        return hs, latent_len
 
 
 class CompressSSL(L.LightningModule):
     def __init__(
         self,
         upstream_name: str,
-        autoencoder_conf: SemanticAutoEncoderConfig,
-        lr: float,
+        latent_size: int,
+        autoencoder_name: str = "transformers",
+        autoencoder_conf=None,
+        lr: float = 1.0e-4,
         kl_weight: float = 1.0,
         logvar_init: float = 0.0,
         initializer_range: float = 0.02,
@@ -24,18 +46,25 @@ class CompressSSL(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.upstream = S3PRLUpstream(upstream_name)
-        self.upstream.requires_grad_(False)
-
-        config = SemanticAutoEncoderConfig(**autoencoder_conf)
-        self.autoencoder = SemanticAutoEncoder(config)
-        self.autoencoder.apply(self._init_weights)
-
         self.lr = lr
         self.kl_weight = kl_weight
         self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)
         self.initializer_range = initializer_range
         self.sample_posterior = sample_posterior
+
+        self.upstream = S3PRLUpstream(upstream_name)
+        self.upstream.requires_grad_(False)
+
+        upstream_size = self.upstream.hidden_sizes[-1]
+        if autoencoder_name == "transformers":
+            autoencoder_conf["representation_size"] = upstream_size
+            config = SemanticAutoEncoderConfig(**autoencoder_conf)
+            self.autoencoder = SemanticAutoEncoder(config)
+        elif autoencoder_name == "simple":
+            self.autoencoder = SimpleModel(upstream_size, latent_size)
+        else:
+            raise ValueError(f"Unsupported autoencoder_name {autoencoder_name}")
+        self.autoencoder.apply(self._init_weights)
 
     def _init_weights(self, module):
         """Initialize the weights"""
