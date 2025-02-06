@@ -1,0 +1,32 @@
+expdir: ???
+num_workers: 8
+
+trainer:
+  max_epochs: 50
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  precision: 16
+  log_every_n_steps: 100
+save_steps: 1000
+valid_metric: valid/wer
+valid_higher_better: false
+
+target: cst.models.asr.CtcASR
+
+model:
+  upstream_name: spin_hubert_2048_kmeans_1000_stack4
+  project_dim: 1024
+  downstream_name: probing
+  lr: 1.0e-4
+
+data:
+  train_conf:
+    data_list: data/asr/librispeech/train_clean_100
+    total_samples: 10000000
+    shuffle: true 
+    num_workers: ${num_workers}
+  valid_conf:
+    data_list: data/asr/librispeech/test_clean
+    total_samples: ${data.train_conf.total_samples}
+    shuffle: false
+    num_workers: ${num_workers}
