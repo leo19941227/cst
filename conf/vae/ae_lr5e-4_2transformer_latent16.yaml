@@ -21,7 +21,7 @@ model:
     encoding_layer_sizes: [768, 768]
     decoding_layer_sizes: [768, 768]
     latent_size: ${model.latent_size}
-  lr: 5.0e-4
+  lr: 2.0e-4
   logvar_init: 0.0
   kl_weight: 0.0
   sample_posterior: False
