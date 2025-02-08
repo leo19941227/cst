@@ -123,6 +123,11 @@ class CompressSSL(L.LightningModule):
         nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar + math.log(2.0)
         nll_loss = nll_loss * valid_mask.unsqueeze(-1)
         nll_loss = torch.sum(nll_loss) / dec_len.sum().item() / nll_loss.size(-1)
+        rec_loss = (
+            (rec_loss * valid_mask.unsqueeze(-1)).sum()
+            / dec_len.sum().item()
+            / rec_loss.size(-1)
+        )
 
         kl_loss = posteriors.kl_per_dim()
         valid_mask = torch.lt(
@@ -133,11 +138,6 @@ class CompressSSL(L.LightningModule):
         kl_loss = torch.sum(kl_loss) / latent_len.sum().item()
 
         total_loss = nll_loss + self.kl_weight * kl_loss
-        rec_loss = (
-            (rec_loss * valid_mask.unsqueeze(-1)).sum()
-            / dec_len.sum().item()
-            / rec_loss.size(-1)
-        )
         return total_loss, nll_loss, kl_loss, rec_loss
 
     def training_step(self, batch, batch_idx):
