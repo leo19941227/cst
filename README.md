@@ -1,2 +1,2 @@
-# Continuous Speech Tokenizer
+# Speech Tokenizer
 
