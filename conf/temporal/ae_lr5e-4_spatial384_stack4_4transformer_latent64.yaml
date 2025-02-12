@@ -1,0 +1,43 @@
+expdir: ???
+num_workers: 8
+
+trainer:
+  max_epochs: 100
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  precision: 16
+  log_every_n_steps: 100
+save_steps: 1000
+valid_metric: valid/loss
+valid_higher_better: false
+
+target: cst.models.compress_ssl.CompressSSL
+
+model:
+  upstream_name: ae_lr5e_4_1transformer_latent384_stack4
+  latent_size: 64
+  autoencoder_name: transformers
+  autoencoder_conf:
+    encoding_layer_sizes: [768, 768, 768, 768]
+    decoding_layer_sizes: [768, 768, 768, 768]
+    latent_size: ${model.latent_size}
+  lr: 2.0e-4
+  logvar_init: 0.0
+  kl_weight: 0.0
+  sample_posterior: False
+
+data:
+  train_conf:
+    data_list: data/librispeech/train_960
+    training: true
+    max_samples: 320000
+    min_samples: 48000
+    total_samples: 10000000
+    shuffle: true 
+    num_workers: ${num_workers}
+  valid_conf:
+    data_list: data/librispeech/test_clean
+    training: false
+    total_samples: ${data.train_conf.total_samples}
+    shuffle: false
+    num_workers: ${num_workers}

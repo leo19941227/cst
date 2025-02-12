@@ -102,6 +102,10 @@ class CompressSSL(L.LightningModule):
         posteriors, latent_len = self.autoencoder.encode(hs, hs_len)
         return hs, hs_len, posteriors, latent_len
 
+    def encode_representation(self, hs, hs_len):
+        posteriors, latent_len = self.autoencoder.encode(hs, hs_len)
+        return posteriors, latent_len
+
     def decode(self, latents, latents_len):
         dec, dec_len = self.autoencoder.decode(latents, latents_len)
         return dec, dec_len
