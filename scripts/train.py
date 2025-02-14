@@ -27,6 +27,7 @@ if __name__ == "__main__":
         conf["save_steps"],
         conf["valid_metric"],
         conf["valid_higher_better"],
+        conf.get("save_epoch", False),
     )
 
     last_ckpt = find_last_ckpt(conf["expdir"])

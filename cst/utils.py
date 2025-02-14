@@ -181,7 +181,9 @@ def initialize():
     level = getattr(logging, args.verbose)
     root_log = logging.getLogger()
     root_log.setLevel(level)
-    formatter = logging.Formatter(f"%(levelname)s | %(asctime)s | %(module)s.%(funcName)s:%(lineno)d | %(message)s")
+    formatter = logging.Formatter(
+        f"%(levelname)s | %(asctime)s | %(module)s.%(funcName)s:%(lineno)d | %(message)s"
+    )
     streamHandler = logging.StreamHandler()
     streamHandler.setFormatter(formatter)
     root_log.addHandler(streamHandler)
@@ -236,6 +238,7 @@ def get_trainer(
     save_steps: int,
     valid_metric: str,
     valid_higher_better: bool,
+    save_epoch: bool,
 ):
     last_checkpointing = ModelCheckpoint(
         dirpath=expdir,
@@ -244,14 +247,6 @@ def get_trainer(
         filename="global_step-{step:.0f}",
         save_top_k=2,
         every_n_train_steps=save_steps,
-        auto_insert_metric_name=False,
-    )
-    epoch_checkpointing = ModelCheckpoint(
-        dirpath=expdir,
-        monitor="epoch",
-        filename="epoch-{epoch:.0f}",
-        save_top_k=-1,
-        every_n_epochs=1,
         auto_insert_metric_name=False,
     )
     valid_checkpointing = ModelCheckpoint(
@@ -266,6 +261,17 @@ def get_trainer(
         every_n_epochs=1,
         auto_insert_metric_name=False,
     )
+    callbacks = [last_checkpointing, valid_checkpointing]
+    if save_epoch:
+        epoch_checkpointing = ModelCheckpoint(
+            dirpath=expdir,
+            monitor="epoch",
+            filename="epoch-{epoch:.0f}",
+            save_top_k=-1,
+            every_n_epochs=1,
+            auto_insert_metric_name=False,
+        )
+        callbacks.append(epoch_checkpointing)
     tb_logger = TensorBoardLogger(
         save_dir=expdir,
         name=None,
@@ -273,7 +279,7 @@ def get_trainer(
     )
     trainer = pl.Trainer(
         logger=tb_logger,
-        callbacks=[last_checkpointing, epoch_checkpointing, valid_checkpointing],
+        callbacks=callbacks,
         **trainer_conf,
     )
     return trainer

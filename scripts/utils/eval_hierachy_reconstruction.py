@@ -38,7 +38,7 @@ if __name__ == "__main__":
     hs_diffs = []
     latent1_diffs = []
     with torch.no_grad():
-        for wavs, wavs_len in tqdm(dataloader):
+        for wavs, wavs_len, stems in tqdm(dataloader):
             wavs = wavs.cuda()
             wavs_len = wavs_len.cuda()
 

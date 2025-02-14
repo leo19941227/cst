@@ -216,7 +216,15 @@ class TransformerLayer(nn.Module):
         self.register_buffer("attn_mask", attn_mask)
 
     def forward(self, hs):
-        attn_mask = self.attn_mask[: hs.size(1), : hs.size(1)].to(dtype=hs.dtype)
+        seqlen = hs.size(1)
+        if seqlen > self.attn_mask.size(0):
+            attn_mask = torch.ones(seqlen, seqlen)
+            attn_mask = torch.tril(attn_mask)
+            attn_mask = 1 - attn_mask
+        else:
+            attn_mask = self.attn_mask[: hs.size(1), : hs.size(1)]
+
+        attn_mask = attn_mask.to(device=hs.device, dtype=hs.dtype)
         attn_mask = attn_mask * torch.finfo(hs.dtype).min
         attn_mask = (
             attn_mask.unsqueeze(0)

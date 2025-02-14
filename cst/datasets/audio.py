@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 import random
 import torchaudio
@@ -14,11 +16,13 @@ class AudioDatset(Dataset):
         training: bool,
         max_samples: int = 320000,
         min_samples: int = 48000,
+        return_stem: bool = False,
     ):
         super().__init__()
         self.training = training
         self.max_samples = max_samples
         self.min_samples = min_samples
+        self.return_stem = return_stem
 
         self.paths = []
         self.lengths = []
@@ -47,6 +51,8 @@ class AudioDatset(Dataset):
         if self.training and len(wav) > self.max_samples:
             start = random.randint(0, len(wav) - self.max_samples - 1)
             wav = wav[start : start + self.max_samples]
+        if self.return_stem:
+            return wav, Path(path).stem
         return wav
 
     @classmethod
@@ -88,17 +94,19 @@ class AudioDatset(Dataset):
         data_list: str,
         num_workers: int = 0,
     ):
-        dataset = cls(data_list, False)
+        dataset = cls(data_list, False, return_stem=True)
 
         def collate_fn(samples):
             wavs = []
             lengths = []
-            for wav in samples:
+            stems = []
+            for wav, stem in samples:
                 wavs.append(wav)
                 lengths.append(len(wav))
+                stems.append(stem)
             wavs = pad_sequence(wavs, batch_first=True)
             lengths = torch.LongTensor(lengths)
-            return wavs, lengths
+            return wavs, lengths, stems
 
         dataloader = DataLoader(
             dataset,
