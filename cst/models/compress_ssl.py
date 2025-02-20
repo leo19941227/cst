@@ -42,6 +42,7 @@ class CompressSSL(L.LightningModule):
         logvar_init: float = 0.0,
         initializer_range: float = 0.02,
         sample_posterior: bool = True,
+        stack: int = 1,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -51,11 +52,12 @@ class CompressSSL(L.LightningModule):
         self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)
         self.initializer_range = initializer_range
         self.sample_posterior = sample_posterior
+        self.stack = stack
 
         self.upstream = S3PRLUpstream(upstream_name)
         self.upstream.requires_grad_(False)
 
-        upstream_size = self.upstream.hidden_sizes[-1]
+        upstream_size = self.upstream.hidden_sizes[-1] * self.stack
         if autoencoder_name == "transformers":
             autoencoder_conf["representation_size"] = upstream_size
             config = SemanticAutoEncoderConfig(**autoencoder_conf)
@@ -93,21 +95,38 @@ class CompressSSL(L.LightningModule):
                 )
                 nn.init.uniform_(module.bias, a=-k, b=k)
 
+    def patchify(self, hs, hs_len):
+        bsz, seq_len, size = hs.shape
+        hs = hs[:, : seq_len // self.stack * self.stack, :].reshape(
+            bsz, seq_len // self.stack, size * self.stack
+        )
+        hs_len = torch.div(hs_len, self.stack, rounding_mode="floor")
+        return hs, hs_len
+
+    def unpatchify(self, hs, hs_len):
+        bsz, seq_len, size = hs.shape
+        hs = hs.reshape(bsz, seq_len * self.stack, size // self.stack)
+        hs_len = hs_len * self.stack
+        return hs, hs_len
+
     def encode(self, wavs, wavs_len):
         self.upstream.eval()
         with torch.no_grad():
             all_hs, all_hs_len = self.upstream(wavs, wavs_len)
             hs, hs_len = all_hs[-1], all_hs_len[-1]
 
-        posteriors, latent_len = self.autoencoder.encode(hs, hs_len)
+        hs_, hs_len_ = self.patchify(hs, hs_len)
+        posteriors, latent_len = self.autoencoder.encode(hs_, hs_len_)
         return hs, hs_len, posteriors, latent_len
 
     def encode_representation(self, hs, hs_len):
-        posteriors, latent_len = self.autoencoder.encode(hs, hs_len)
+        hs_, hs_len_ = self.patchify(hs, hs_len)
+        posteriors, latent_len = self.autoencoder.encode(hs_, hs_len_)
         return posteriors, latent_len
 
     def decode(self, latents, latents_len):
         dec, dec_len = self.autoencoder.decode(latents, latents_len)
+        dec, dec_len = self.unpatchify(dec, dec_len)
         return dec, dec_len
 
     def forward(self, wavs, wavs_len):
